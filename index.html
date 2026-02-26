@@ -359,7 +359,7 @@
             <div id="wallet-page" class="p-4 space-y-6 sub-page">
                 <h2 class="text-xl font-bold text-center">My Wallet</h2>
                 <div class="card-bg p-4 rounded-lg">
-					<span class="font-bold text-accent"> 1st withdrawal approved for 5 refer</span>
+                    <span class="font-bold text-accent"> 1st withdrawal approved for 5 refer</span>
 
                    <h3 class="font-semibold mb-3">Withdraw Earnings</h3>
                    <p class="text-sm text-gray-400 mb-1">Current Balance: <span class="font-bold text-accent"><span id="wallet-coin-balance">0</span> Coins</span></p>
@@ -702,6 +702,17 @@
                 const baseUrl = window.location.origin + window.location.pathname;
         userData.referralLink = baseUrl + '?ref=' + userData.referralCode;
 const today = new Date().toISOString().split('T')[0];
+
+// ডাটা ক্লিনআপ - পুরোনো ভুল ডাটা ফিক্স
+if (userData.dailyAdWatchCount > 4) {
+    userData.dailyAdWatchCount = 0;
+    userData.adBonusClaimed = false;
+    await updateDoc(userRef, {
+        dailyAdWatchCount: 0,
+        adBonusClaimed: false
+    });
+}
+
 if (userData.lastAdBonusDate !== today) {
     // নতুন দিন শুরু হলে রিসেট করুন
     userData.dailyAdWatchCount = 0;
@@ -758,8 +769,8 @@ if (userData.lastAdBonusDate !== today) {
         const fullLink = baseUrl + '?ref=' + userData.referralCode;
         referralLinkEl.textContent = fullLink;
     }
-			// Profile page update
-				updateProfileRank();
+            // Profile page update
+            updateProfileRank();
             const earned = userData.totalEarned || 0;
             const level = Math.floor(earned / 500) + 1;
             userData.userLevel = level;
@@ -1135,22 +1146,20 @@ if (userData.lastAdBonusDate !== today) {
 function updateAdProgressBar() {
     if (!userData) return;
     
-    // বাধ্যতামূলকভাবে কাউন্ট 0 থেকে 4 এর মধ্যে রাখুন
+    // কাউন্ট 0-4 এর মধ্যে রাখুন
     let watchCount = userData.dailyAdWatchCount || 0;
     
     // যদি 4-এর বেশি হয়, তাহলে 0 করুন
     if (watchCount > 4) {
         watchCount = 0;
-        // Firebase আপডেট করুন
+        userData.dailyAdWatchCount = 0;
         const userRef = doc(db, "users", currentUser.uid);
         updateDoc(userRef, { dailyAdWatchCount: 0 });
-        userData.dailyAdWatchCount = 0;
     }
     
-    // যদি 4 হয় এবং বোনাস ক্লেইম করা থাকে, তাহলে 0 করুন
+    // যদি 4 হয় এবং বোনাস ক্লেইম করা থাকে, তাহলে 0 দেখান
     if (watchCount === 4 && userData.adBonusClaimed) {
         watchCount = 0;
-        userData.dailyAdWatchCount = 0;
     }
     
     const percentage = (watchCount / 4) * 100;
@@ -1198,8 +1207,8 @@ window.claimAdBonus = async function() {
         await updateDoc(userRef, {
             balance: newBalance,
             totalEarned: newEarned,
-            dailyAdWatchCount: 0,  // এইটা 0 করা জরুরি
-            adBonusClaimed: false,  // আবার নতুন করে বোনাস নেওয়ার জন্য
+            dailyAdWatchCount: 0,
+            adBonusClaimed: false,
             lastAdBonusDate: today
         });
         
@@ -1211,7 +1220,7 @@ window.claimAdBonus = async function() {
         userData.lastAdBonusDate = today;
         
         updateUI();
-        updateAdProgressBar(); // প্রগ্রেস বার রিফ্রেশ
+        updateAdProgressBar();
         
         showAlert("🎉 10 coins bonus claimed! Watch 4 more ads to claim again!");
         
@@ -1261,7 +1270,7 @@ window.claimReward = async function(taskType) {
             dailyAdCount: 0, 
             lastAdWatchDate: today,
             totalAdsToday: 0,
-            dailyAdWatchCount: 0  // bonus count reset for new day
+            dailyAdWatchCount: 0
         });
         userData.dailyAdCount = 0;
         userData.lastAdWatchDate = today;
@@ -1303,39 +1312,34 @@ window.claimReward = async function(taskType) {
         
         await adPromise;
 
-        // 1. Daily ad count update (for limit)
+        // 1. Daily ad count update
         const newDailyCount = (userData.dailyAdCount || 0) + 1;
         
-        // 2. Total ads today update (for cooldown)
+        // 2. Total ads today update
         const newTotalToday = (userData.totalAdsToday || 0) + 1;
         
-        // 3. Total ads watched (lifetime)
+        // 3. Total ads watched
         const newTotalWatched = (userData.totalAdsWatched || 0) + 1;
         
-// 4. Bonus watch count - নতুন সিস্টেম
-let newBonusWatchCount;
-
-// যদি বোনাস ক্লেইম করা থাকে, তাহলে নতুন করে শুরু
-if (userData.adBonusClaimed) {
-    newBonusWatchCount = 1;
-} 
-// যদি 4 হয়ে থাকে এবং বোনাস ক্লেইম না করা থাকে
-else if (userData.dailyAdWatchCount === 4 && !userData.adBonusClaimed) {
-    newBonusWatchCount = 4;
-}
-// যদি 4-এর বেশি হয় (পুরোনো ডাটা)
-else if (userData.dailyAdWatchCount > 4) {
-    newBonusWatchCount = 1; // 1 থেকে শুরু
-}
-// সাধারণ কাউন্ট
-else {
-    newBonusWatchCount = (userData.dailyAdWatchCount || 0) + 1;
-    
-    // যদি 4 হয়ে যায়, তাহলে 4-ই রাখুন
-    if (newBonusWatchCount > 4) {
-        newBonusWatchCount = 4;
-    }
-}
+        // 4. Bonus watch count - সহজ এবং নির্ভুল সিস্টেম
+        let newBonusWatchCount;
+        
+        // যদি বোনাস ক্লেইম করা থাকে, তাহলে নতুন করে শুরু
+        if (userData.adBonusClaimed) {
+            newBonusWatchCount = 1;
+        }
+        // যদি ইতিমধ্যে 4 হয়ে থাকে এবং বোনাস ক্লেইম না করা থাকে
+        else if (userData.dailyAdWatchCount === 4 && !userData.adBonusClaimed) {
+            newBonusWatchCount = 4;
+        }
+        // যদি 4-এর বেশি হয়, তাহলে 1 থেকে শুরু
+        else if (userData.dailyAdWatchCount > 4) {
+            newBonusWatchCount = 1;
+        }
+        // সাধারণ কাউন্ট
+        else {
+            newBonusWatchCount = (userData.dailyAdWatchCount || 0) + 1;
+        }
         
         // Update all in Firebase
         await updateDoc(userRef, { 
@@ -1364,7 +1368,7 @@ else {
         
         // Check for 100 ads cooldown
         if (userData.totalAdsToday >= 100) {
-            const cooldownUntil = new Date(Date.now() + 3600000); // 1 hour = 3600000 ms
+            const cooldownUntil = new Date(Date.now() + 3600000);
             await updateDoc(userRef, { 
                 adCooldownUntil: cooldownUntil,
                 totalAdsToday: 0
@@ -1448,17 +1452,16 @@ else {
 window.openSupportBot = function() {
     window.open("https://t.me/Helpcenterearneasyzone_bot", "_blank");
 };
-// Check URL for referral code on page load
+
 function checkUrlForReferral() {
     const urlParams = new URLSearchParams(window.location.search);
     const refCode = urlParams.get('ref');
     
     if (refCode && currentUser && userData && !userData.referredBy) {
-        // Auto apply referral code
         applyReferralBonus(refCode, true);
     }
 }
-			// Copy referral link function
+
 document.getElementById('copy-link-btn')?.addEventListener('click', function() {
     const linkText = document.getElementById('referral-link').textContent;
     navigator.clipboard.writeText(linkText).then(() => {
@@ -1468,8 +1471,6 @@ document.getElementById('copy-link-btn')?.addEventListener('click', function() {
     });
 });
 
-// Update share function to include link
-const originalShareFn = window.shareReferralCode;
 window.shareReferralCode = function() {
     const link = document.getElementById('referral-link').textContent;
     const text = `Join Easy Earn Zone and earn money! Use my referral link to get bonus coins: ${link}`;
@@ -1489,7 +1490,6 @@ window.shareReferralCode = function() {
     }
 };
 
-// Rank calculation function
 function calculateRank(earned) {
     if (earned >= 5000) return "Diamond";
     if (earned >= 2000) return "Gold";
@@ -1498,7 +1498,6 @@ function calculateRank(earned) {
     return "Bronze";
 }
 
-// Profile page mein rank update karna
 function updateProfileRank() {
     const rankEl = document.getElementById('user-rank');
     const referralsProfileEl = document.getElementById('referrals-count-profile');
@@ -1511,7 +1510,7 @@ function updateProfileRank() {
         referralsProfileEl.textContent = userData.referredUsersCount || 0;
     }
 }
-// ফোর্সড রিসেট ফাংশন - সব ইউজারের ডাটা রিসেট করবে
+
 window.forceResetBonusSystem = async function() {
     if (!currentUser || !userData) return;
     
@@ -1519,7 +1518,6 @@ window.forceResetBonusSystem = async function() {
     try {
         const userRef = doc(db, "users", currentUser.uid);
         
-        // সব কিছু রিসেট করে দিন
         await updateDoc(userRef, {
             dailyAdWatchCount: 0,
             adBonusClaimed: false,
@@ -1529,7 +1527,6 @@ window.forceResetBonusSystem = async function() {
             lastAdWatchDate: new Date().toISOString().split('T')[0]
         });
         
-        // লোকাল ডাটাও আপডেট
         userData.dailyAdWatchCount = 0;
         userData.adBonusClaimed = false;
         userData.dailyAdCount = 0;
@@ -1537,7 +1534,6 @@ window.forceResetBonusSystem = async function() {
         userData.lastAdBonusDate = new Date().toISOString().split('T')[0];
         userData.lastAdWatchDate = new Date().toISOString().split('T')[0];
         
-        // UI আপডেট
         updateUI();
         updateAdProgressBar();
         
