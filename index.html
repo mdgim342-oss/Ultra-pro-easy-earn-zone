@@ -1135,32 +1135,42 @@ if (userData.lastAdBonusDate !== today) {
 function updateAdProgressBar() {
     if (!userData) return;
     
-    // আজকের তারিখ চেক করুন
-    const today = new Date().toISOString().split('T')[0];
+    // বাধ্যতামূলকভাবে কাউন্ট 0 থেকে 4 এর মধ্যে রাখুন
+    let watchCount = userData.dailyAdWatchCount || 0;
     
-    // যদি নতুন দিন হয়, তাহলে কাউন্ট রিসেট করুন
-    if (userData.lastAdBonusDate !== today) {
+    // যদি 4-এর বেশি হয়, তাহলে 0 করুন
+    if (watchCount > 4) {
+        watchCount = 0;
+        // Firebase আপডেট করুন
+        const userRef = doc(db, "users", currentUser.uid);
+        updateDoc(userRef, { dailyAdWatchCount: 0 });
         userData.dailyAdWatchCount = 0;
-        userData.adBonusClaimed = false;
-        userData.lastAdBonusDate = today;
     }
     
-    const watchCount = userData.dailyAdWatchCount || 0;
+    // যদি 4 হয় এবং বোনাস ক্লেইম করা থাকে, তাহলে 0 করুন
+    if (watchCount === 4 && userData.adBonusClaimed) {
+        watchCount = 0;
+        userData.dailyAdWatchCount = 0;
+    }
+    
     const percentage = (watchCount / 4) * 100;
     
-    if (adProgressBar) adProgressBar.style.width = percentage + '%';
-    if (adProgressText) adProgressText.textContent = `${watchCount}/4 Ads`;
+    if (adProgressBar) {
+        adProgressBar.style.width = percentage + '%';
+    }
+    if (adProgressText) {
+        adProgressText.textContent = `${watchCount}/4 Ads`;
+    }
     
     if (claimAdBonusBtn) {
-        // যদি ৪টি এড দেখা হয়ে থাকে এবং বোনাস ক্লেইম করা না হয়ে থাকে
         if (watchCount >= 4 && !userData.adBonusClaimed) {
             claimAdBonusBtn.disabled = false;
-            claimAdBonusBtn.classList.add('bonus-ready');
             claimAdBonusBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            claimAdBonusBtn.classList.add('bonus-ready');
         } else {
             claimAdBonusBtn.disabled = true;
-            claimAdBonusBtn.classList.remove('bonus-ready');
             claimAdBonusBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            claimAdBonusBtn.classList.remove('bonus-ready');
         }
     }
 }
@@ -1168,25 +1178,8 @@ function updateAdProgressBar() {
 window.claimAdBonus = async function() {
     if (!currentUser || !userData) return showAlert("Please login first.");
     
-    // চেক করুন আজকের তারিখে বোনাস ক্লেইম করা হয়েছে কিনা
     const today = new Date().toISOString().split('T')[0];
     
-    // যদি lastAdBonusDate আজকের না হয়, তাহলে রিসেট করুন
-    if (userData.lastAdBonusDate !== today) {
-        userData.dailyAdWatchCount = 0;
-        userData.adBonusClaimed = false;
-        userData.lastAdBonusDate = today;
-        
-        // Firebase আপডেট করুন
-        const userRef = doc(db, "users", currentUser.uid);
-        await updateDoc(userRef, {
-            dailyAdWatchCount: 0,
-            adBonusClaimed: false,
-            lastAdBonusDate: today
-        });
-    }
-    
-    // বোনাস ক্লেইম করার জন্য চেক করুন
     if (userData.adBonusClaimed) {
         return showAlert("You have already claimed bonus for these 4 ads. Watch 4 more ads to claim again!");
     }
@@ -1201,30 +1194,26 @@ window.claimAdBonus = async function() {
         const newBalance = (userData.balance || 0) + 10;
         const newEarned = (userData.totalEarned || 0) + 10;
         
-        // বোনাস ক্লেইম করার পর dailyAdWatchCount 0 করুন এবং নতুন বোনাসের জন্য প্রস্তুত রাখুন
+        // বোনাস ক্লেইম করার পর dailyAdWatchCount 0 করুন
         await updateDoc(userRef, {
             balance: newBalance,
             totalEarned: newEarned,
-            dailyAdWatchCount: 0, // রিসেট করে দিচ্ছি
-            adBonusClaimed: false, // false রাখুন যাতে আবার বোনাস নিতে পারে
-            lastAdBonusDate: today // আজকের তারিখ রাখুন
+            dailyAdWatchCount: 0,  // এইটা 0 করা জরুরি
+            adBonusClaimed: false,  // আবার নতুন করে বোনাস নেওয়ার জন্য
+            lastAdBonusDate: today
         });
         
-        // লোকাল ডাটা আপডেট করুন
+        // লোকাল ডাটা আপডেট
         userData.balance = newBalance;
         userData.totalEarned = newEarned;
         userData.dailyAdWatchCount = 0;
         userData.adBonusClaimed = false;
         userData.lastAdBonusDate = today;
         
-        // UI আপডেট করুন
         updateUI();
+        updateAdProgressBar(); // প্রগ্রেস বার রিফ্রেশ
         
-        // সাফল্যের বার্তা
         showAlert("🎉 10 coins bonus claimed! Watch 4 more ads to claim again!");
-        
-        // প্রগ্রেস বার আপডেট করুন
-        updateAdProgressBar();
         
     } catch (error) {
         console.error("Error claiming bonus:", error);
@@ -1234,107 +1223,6 @@ window.claimAdBonus = async function() {
     }
 };
 
-        window.claimReward = async function(taskType) {
-            if (!currentUser) return showAlert("Please login first.");
-            
-            if (userData.adCooldownUntil) {
-                const cooldownTime = new Date(userData.adCooldownUntil).getTime();
-                if (cooldownTime > new Date().getTime()) {
-                    return showAlert("Ad cooldown active. Please wait for the timer to finish.");
-                }
-            }
-            
-            const today = new Date().toISOString().split('T')[0];
-            const userRef = doc(db, "users", currentUser.uid);
-
-            if (userData.lastAdWatchDate !== today) {
-                await updateDoc(userRef, { 
-                    dailyAdCount: 0, 
-                    lastAdWatchDate: today,
-                    totalAdsToday: 0 
-                });
-                userData.dailyAdCount = 0;
-                userData.lastAdWatchDate = today;
-                userData.totalAdsToday = 0;
-            }
-
-            if (userData.dailyAdCount >= (appConfig.dailyAdLimit || 10)) {
-                return showAlert("You have reached your daily ad watch limit.");
-            }
-            
-            if (typeof window.show_10552044 !== 'function') {
-                return showAlert("Ad service is currently unavailable. Please try again later.");
-            }
-            
-            let adPromise;
-            loader.style.display = 'flex';
-            try {
-                switch(taskType) {
-                    case 'interstitial': adPromise = window.show_10552044(); break;
-                    case 'popup': adPromise = window.show_10552044('pop'); break;
-                    case 'inApp': adPromise = window.show_10552044({ type: 'inApp', inAppSettings: { frequency: 2, capping: 0.1, interval: 30, timeout: 5, everyPage: false } }); break;
-                    case 'miniApp': adPromise = window.show_10552044(); break;
-                    default: return;
-                }
-                
-                await adPromise;
-
-                const newCount = (userData.dailyAdCount || 0) + 1;
-                const newTotalToday = (userData.totalAdsToday || 0) + 1;
-                const newTotalWatched = (userData.totalAdsWatched || 0) + 1;
-                
-                await updateDoc(userRef, { 
-                    dailyAdCount: newCount,
-                    totalAdsWatched: newTotalWatched,
-                    totalAdsToday: newTotalToday,
-                    lastAdTimestamp: new Date()
-                });
-
-                userData.dailyAdCount = newCount;
-                userData.totalAdsWatched = newTotalWatched;
-                userData.totalAdsToday = newTotalToday;
-                
-const newDailyWatchCount = (userData.dailyAdWatchCount || 0) + 1;
-await updateDoc(userRef, { dailyAdWatchCount: newDailyWatchCount });
-userData.dailyAdWatchCount = newDailyWatchCount;
-
-// যখনই এড দেখবে, চেক করবে যে ৪টা পূর্ণ হয়েছে কিনা
-if (newDailyWatchCount >= 4 && !userData.adBonusClaimed) {
-    // বোনাস ক্লেইম বাটন সক্রিয় করুন
-    showAlert("🎯 You've watched 4 ads! Click the 'Claim 10' button to get your bonus!");
-}
-
-                let rewardAmount = 5;
-                if (rewardAmount > 0) {
-                    await updateBalance(rewardAmount);
-                    showAlert(`Congratulations! You have won ${rewardAmount} coins.`);
-               }
-                
-                if (userData.totalAdsToday >= 100) {
-                    const cooldownUntil = new Date(Date.now() + 3600000);
-                    await updateDoc(userRef, { 
-                        adCooldownUntil: cooldownUntil,
-                        totalAdsToday: 0
-                    });
-                    userData.adCooldownUntil = cooldownUntil;
-                    userData.totalAdsToday = 0;
-                    startTimer(3600000);
-                    disableAdButtons(true);
-                    if (adTimerSection) adTimerSection.classList.remove('hidden');
-                    showAlert("You've watched 100 ads! 1 hour cooldown started.");
-                }
-                
-                updateAdsLeftCount();
-                updateAdProgressBar();
-                updateUI();
-
-            } catch(e) {
-                console.error("Ad error:", e);
-                showAlert('Could not show ad. Please try again later.');
-            } finally {
-                loader.style.display = 'none';
-            }
-        }
 
         window.joinCommunityReward = async function () {
             if (!currentUser || !userData) return showAlert("Login required.");
@@ -1354,6 +1242,155 @@ if (newDailyWatchCount >= 4 && !userData.adBonusClaimed) {
             }, 8000);
         };
 
+window.claimReward = async function(taskType) {
+    if (!currentUser) return showAlert("Please login first.");
+    
+    if (userData.adCooldownUntil) {
+        const cooldownTime = new Date(userData.adCooldownUntil).getTime();
+        if (cooldownTime > new Date().getTime()) {
+            return showAlert("Ad cooldown active. Please wait for the timer to finish.");
+        }
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    const userRef = doc(db, "users", currentUser.uid);
+
+    // Daily reset check
+    if (userData.lastAdWatchDate !== today) {
+        await updateDoc(userRef, { 
+            dailyAdCount: 0, 
+            lastAdWatchDate: today,
+            totalAdsToday: 0,
+            dailyAdWatchCount: 0  // bonus count reset for new day
+        });
+        userData.dailyAdCount = 0;
+        userData.lastAdWatchDate = today;
+        userData.totalAdsToday = 0;
+        userData.dailyAdWatchCount = 0;
+    }
+
+    // Daily limit check
+    if (userData.dailyAdCount >= (appConfig.dailyAdLimit || 10)) {
+        return showAlert("You have reached your daily ad watch limit.");
+    }
+    
+    // Ad service check
+    if (typeof window.show_10552044 !== 'function') {
+        return showAlert("Ad service is currently unavailable. Please try again later.");
+    }
+    
+    let adPromise;
+    loader.style.display = 'flex';
+    
+    try {
+        // Show ad based on type
+        switch(taskType) {
+            case 'interstitial': 
+                adPromise = window.show_10552044(); 
+                break;
+            case 'popup': 
+                adPromise = window.show_10552044('pop'); 
+                break;
+            case 'inApp': 
+                adPromise = window.show_10552044({ type: 'inApp', inAppSettings: { frequency: 2, capping: 0.1, interval: 30, timeout: 5, everyPage: false } }); 
+                break;
+            case 'miniApp': 
+                adPromise = window.show_10552044(); 
+                break;
+            default: 
+                return;
+        }
+        
+        await adPromise;
+
+        // 1. Daily ad count update (for limit)
+        const newDailyCount = (userData.dailyAdCount || 0) + 1;
+        
+        // 2. Total ads today update (for cooldown)
+        const newTotalToday = (userData.totalAdsToday || 0) + 1;
+        
+        // 3. Total ads watched (lifetime)
+        const newTotalWatched = (userData.totalAdsWatched || 0) + 1;
+        
+// 4. Bonus watch count - নতুন সিস্টেম
+let newBonusWatchCount;
+
+// যদি বোনাস ক্লেইম করা থাকে, তাহলে নতুন করে শুরু
+if (userData.adBonusClaimed) {
+    newBonusWatchCount = 1;
+} 
+// যদি 4 হয়ে থাকে এবং বোনাস ক্লেইম না করা থাকে
+else if (userData.dailyAdWatchCount === 4 && !userData.adBonusClaimed) {
+    newBonusWatchCount = 4;
+}
+// যদি 4-এর বেশি হয় (পুরোনো ডাটা)
+else if (userData.dailyAdWatchCount > 4) {
+    newBonusWatchCount = 1; // 1 থেকে শুরু
+}
+// সাধারণ কাউন্ট
+else {
+    newBonusWatchCount = (userData.dailyAdWatchCount || 0) + 1;
+    
+    // যদি 4 হয়ে যায়, তাহলে 4-ই রাখুন
+    if (newBonusWatchCount > 4) {
+        newBonusWatchCount = 4;
+    }
+}
+        
+        // Update all in Firebase
+        await updateDoc(userRef, { 
+            dailyAdCount: newDailyCount,
+            totalAdsWatched: newTotalWatched,
+            totalAdsToday: newTotalToday,
+            dailyAdWatchCount: newBonusWatchCount,
+            lastAdTimestamp: new Date()
+        });
+
+        // Update local data
+        userData.dailyAdCount = newDailyCount;
+        userData.totalAdsWatched = newTotalWatched;
+        userData.totalAdsToday = newTotalToday;
+        userData.dailyAdWatchCount = newBonusWatchCount;
+        
+        // Give 5 coins reward for watching ad
+        let rewardAmount = 5;
+        await updateBalance(rewardAmount);
+        showAlert(`Congratulations! You have won ${rewardAmount} coins.`);
+        
+        // Check if 4 ads completed for bonus
+        if (newBonusWatchCount >= 4 && !userData.adBonusClaimed) {
+            showAlert("🎯 You've watched 4 ads! Click the 'Claim 10' button to get your bonus!");
+        }
+        
+        // Check for 100 ads cooldown
+        if (userData.totalAdsToday >= 100) {
+            const cooldownUntil = new Date(Date.now() + 3600000); // 1 hour = 3600000 ms
+            await updateDoc(userRef, { 
+                adCooldownUntil: cooldownUntil,
+                totalAdsToday: 0
+            });
+            userData.adCooldownUntil = cooldownUntil;
+            userData.totalAdsToday = 0;
+            startTimer(3600000);
+            disableAdButtons(true);
+            if (adTimerSection) {
+                adTimerSection.classList.remove('hidden');
+            }
+            showAlert("You've watched 100 ads! 1 hour cooldown started.");
+        }
+        
+        // Update UI
+        updateAdsLeftCount();
+        updateAdProgressBar();
+        updateUI();
+
+    } catch(e) {
+        console.error("Ad error:", e);
+        showAlert('Could not show ad. Please try again later.');
+    } finally {
+        loader.style.display = 'none';
+    }
+}
         window.joinFacebookReward = async function () {
             if (!currentUser || !userData) return showAlert("Login required.");
             if (userData.facebookJoined === true) return showAlert("Facebook reward already claimed.");
@@ -1474,7 +1511,45 @@ function updateProfileRank() {
         referralsProfileEl.textContent = userData.referredUsersCount || 0;
     }
 }
-
+// ফোর্সড রিসেট ফাংশন - সব ইউজারের ডাটা রিসেট করবে
+window.forceResetBonusSystem = async function() {
+    if (!currentUser || !userData) return;
+    
+    loader.style.display = 'flex';
+    try {
+        const userRef = doc(db, "users", currentUser.uid);
+        
+        // সব কিছু রিসেট করে দিন
+        await updateDoc(userRef, {
+            dailyAdWatchCount: 0,
+            adBonusClaimed: false,
+            dailyAdCount: 0,
+            totalAdsToday: 0,
+            lastAdBonusDate: new Date().toISOString().split('T')[0],
+            lastAdWatchDate: new Date().toISOString().split('T')[0]
+        });
+        
+        // লোকাল ডাটাও আপডেট
+        userData.dailyAdWatchCount = 0;
+        userData.adBonusClaimed = false;
+        userData.dailyAdCount = 0;
+        userData.totalAdsToday = 0;
+        userData.lastAdBonusDate = new Date().toISOString().split('T')[0];
+        userData.lastAdWatchDate = new Date().toISOString().split('T')[0];
+        
+        // UI আপডেট
+        updateUI();
+        updateAdProgressBar();
+        
+        showAlert("✅ Bonus system reset successfully! Now 0/4");
+        
+    } catch (error) {
+        console.error("Reset error:", error);
+        showAlert("Error resetting system");
+    } finally {
+        loader.style.display = 'none';
+    }
+};
 
     </script>
 </body>
